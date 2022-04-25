@@ -1,6 +1,8 @@
 import multiprocessing as mp
 import numpy as np
 import matplotlib.pyplot as plt
+from mpl_toolkits import mplot3d
+from mpl_toolkits.mplot3d import Axes3D
 import time
 
 
@@ -43,11 +45,11 @@ class BSP:
         self.psi = []
         if self.r == 0:
             # массив размера N_ значений ядра В.А. Стеклова без сглаживания
-            x = np.linspace(0, self.h * self.N / self.N_, self.N_)
+            x = np.linspace(0, self.N / self.N_, self.N_)
             self.psi = [1 - abs(t) if abs(t) <= 1 else 0 for t in x]
         elif self.r == 2:
             # массив размера 2N_ значений ядра В.А. Стеклова без сглаживания
-            x = np.linspace(0, 2 * self.h * (2 * self.N_ - 1) / (2 * self.N_), 2 * self.N_)
+            x = np.linspace(0, (self.N + self.N_) / self.N_, 2 * self.N_)
             psi4 = []
             for t in x:
                 v = abs(t)
@@ -67,6 +69,9 @@ class BSP:
         self.x = np.linspace(0, (self.K - 1) * self.h, self.M)
         ms = list(np.array_split(range(0, self.M), self.p))
 
+        K_p = self.K / self.p
+        M_p = self.N * (K_p-1) + K_p
+        print(len(ms[0]), M_p)
         pool = mp.Pool(self.p)
         results = []
         self.G = []
@@ -124,7 +129,32 @@ class BSP:
     def display_results(self):
         # вывод исходных и восстановленных данных
         plt.scatter(self.u, self.phi, label='Исходные данные')
-        plt.plot(self.x, self.G, alpha=0.5, label='Параллельно')
+        plt.plot(self.x, self.G, alpha=0.5, label='Восстановленные данные')
         plt.title('G0 - без сглаживания' if self.r == 0 else 'G2 - со сглаживанием')
         plt.legend()
         plt.show()
+
+    def display_results_3D(self):
+        fig = plt.figure()
+        ax = Axes3D(fig)
+        z = np.linspace(0, 1, self.K)
+        ax.scatter(self.u, self.phi, z, label='Исходные данные')
+        ax.plot(self.x, self.G, self.z, label='Восстановленные данные')
+        ax.set_title('G0 - без сглаживания' if self.r == 0 else 'G2 - со сглаживанием')
+        ax.set_xlabel('x')
+        ax.set_ylabel('y')
+        ax.set_zlabel('z')
+        plt.legend()
+        plt.show()
+
+    def display_psi(self):
+        if self.r == 0:
+            x = np.linspace(0, self.N / self.N_, self.N_)
+            plt.plot(x, self.psi)
+            plt.show()
+        elif self.r == 2:
+            x = np.linspace(0, (self.N + self.N_) / self.N_, 2 * self.N_)
+            plt.plot(x, self.psi)
+            plt.show()
+        else:
+            raise ValueError('Некорректный коэффицент сглаживания')

@@ -2,11 +2,11 @@ from bsp import BSP
 
 
 def main():
-    cmp = BSP(K=25, h=1, N=4, r=1, p=2)
+    cmp = BSP(K=25, h=1, N=4, r=2, p=2)
     try:
         cmp.fit()
         cmp.compute()
-        cmp.display_results()
+        cmp.display_results_3D()
     except Exception as e:
         print(e)
     finally:
