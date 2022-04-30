@@ -64,31 +64,51 @@ class BSP:
         else:
             raise ValueError('Некорректный коэффицент сглаживания')
 
-    def compute(self):
+    def compute_by_map(self):
+        # массив размером M значение аппроксимирующей функции в узлах мелкой сетки
+        self.x = np.linspace(0, (self.K - 1) * self.h, self.M)
+        ms = list(np.array_split(range(0, self.M), self.p))
+
+        K_p = self.K / self.p
+        M_p = self.N * (K_p - 1) + K_p
+
+        pool = mp.Pool(self.p)
+        self.time_start = time.perf_counter()
+        results = []
+        self.G = []
+        if self.r == 0:
+            results = pool.map(self.compute_G0, ms)
+        elif self.r == 2:
+            results = pool.map(self.compute_G2, ms)
+        pool.close()
+        pool.join()
+        self.time_end = time.perf_counter()
+        for i in results:
+            self.G.extend(i)
+
+    def compute_by_apply(self):
         # массив размером M значение аппроксимирующей функции в узлах мелкой сетки
         self.x = np.linspace(0, (self.K - 1) * self.h, self.M)
         ms = list(np.array_split(range(0, self.M), self.p))
 
         K_p = self.K / self.p
         M_p = self.N * (K_p-1) + K_p
-        print(len(ms[0]), M_p)
+
         pool = mp.Pool(self.p)
+        self.time_start = time.perf_counter()
         results = []
         self.G = []
         if self.r == 0:
             for i in ms:
                 results.append(pool.apply(self.compute_G0, args=(i,)))
-            # self.G = results.copy()
-            for i in results:
-                self.G.extend(i)
         elif self.r == 2:
             for i in ms:
                 results.append(pool.apply(self.compute_G2, args=(i,)))
-            # self.G = results.copy()
-            for i in results:
-                self.G.extend(i)
         pool.close()
         pool.join()
+        self.time_end = time.perf_counter()
+        for i in results:
+            self.G.extend(i)
 
     def compute_G0(self, ms):
         vs = []
@@ -126,7 +146,7 @@ class BSP:
             vs.append(v)
         return vs
 
-    def display_results(self):
+    def display_results_2D(self):
         # вывод исходных и восстановленных данных
         plt.scatter(self.u, self.phi, label='Исходные данные')
         plt.plot(self.x, self.G, alpha=0.5, label='Восстановленные данные')
@@ -158,3 +178,6 @@ class BSP:
             plt.show()
         else:
             raise ValueError('Некорректный коэффицент сглаживания')
+
+    def computation_time(self):
+        print(f'Время работы составило {self.time_end - self.time_start} секунд')
