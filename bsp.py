@@ -1,3 +1,5 @@
+import concurrent.futures
+from concurrent.futures import ProcessPoolExecutor
 import multiprocessing as mp
 import numpy as np
 import matplotlib.pyplot as plt
@@ -64,6 +66,26 @@ class BSP:
         else:
             raise ValueError('Некорректный коэффицент сглаживания')
 
+    def compute_by_ppe(self):
+        # массив размером M значение аппроксимирующей функции в узлах мелкой сетки
+        self.x = np.linspace(0, (self.K - 1) * self.h, self.M)
+        ms = list(np.array_split(range(0, self.M), self.p))
+
+        K_p = self.K / self.p
+        M_p = self.N * (K_p - 1) + K_p
+
+        self.time_start = time.perf_counter()
+        self.G = []
+        with concurrent.futures.ProcessPoolExecutor(max_workers=self.p) as executor:
+            match self.r:
+                case 0:
+                    results = executor.map(self.compute_G0, ms)
+                case 2:
+                    results = executor.map(self.compute_G2, ms)
+        self.time_end = time.perf_counter()
+        for i in results:
+            self.G.extend(i)
+
     def compute_by_map(self):
         # массив размером M значение аппроксимирующей функции в узлах мелкой сетки
         self.x = np.linspace(0, (self.K - 1) * self.h, self.M)
@@ -76,12 +98,15 @@ class BSP:
         self.time_start = time.perf_counter()
         results = []
         self.G = []
-        if self.r == 0:
-            results = pool.map(self.compute_G0, ms)
-        elif self.r == 2:
-            results = pool.map(self.compute_G2, ms)
+
+        match self.r:
+            case 0:
+                results = pool.map(self.compute_G0, ms)
+            case 2:
+                results = pool.map(self.compute_G2, ms)
         pool.close()
         pool.join()
+
         self.time_end = time.perf_counter()
         for i in results:
             self.G.extend(i)
@@ -151,6 +176,8 @@ class BSP:
         plt.scatter(self.u, self.phi, label='Исходные данные')
         plt.plot(self.x, self.G, alpha=0.5, label='Восстановленные данные')
         plt.title('G0 - без сглаживания' if self.r == 0 else 'G2 - со сглаживанием')
+        plt.xlabel('x')
+        plt.ylabel('y')
         plt.legend()
         plt.show()
 

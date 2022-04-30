@@ -5,7 +5,7 @@ def main():
     cmp = BSP(K=25, h=1, N=4, r=0, p=2)
     try:
         cmp.fit()
-        cmp.compute_by_map()
+        cmp.compute_by_ppe()
     except Exception as e:
         print(e)
     finally:
