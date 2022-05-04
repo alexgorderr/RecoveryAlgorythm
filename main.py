@@ -2,10 +2,10 @@ from bsp import BSP
 
 
 def main():
-    cmp = BSP(K=25, h=1, N=4, r=0, p=2)
+    cmp = BSP(K=25, h=1, N=20, r=2, p=3)
     try:
         cmp.fit()
-        cmp.compute_by_ppe()
+        cmp.improved_compute_by_map()
     except Exception as e:
         print(e)
     finally:

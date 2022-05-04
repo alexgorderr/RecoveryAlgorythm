@@ -30,6 +30,47 @@ class BSP:
         # число потоков
         self.p = p
 
+    def get_psi(self) -> list:
+        match self.r:
+            case 0:
+                # массив размера N_ значений ядра В.А. Стеклова без сглаживания
+                x = np.linspace(0, self.N / self.N_, self.N_)
+                psi2 = [1 - abs(t) for t in x]
+                return psi2
+            case 2:
+                # массив размера 2N_ значений ядра В.А. Стеклова без сглаживания
+                x = np.linspace(0, (self.N + self.N_) / self.N_, 2 * self.N_)
+                psi4 = []
+                for t in x:
+                    v = abs(t)
+                    if v <= 1:
+                        r = 3 * v ** 3 - 6 * v ** 2 + 4
+                    elif 1 < v <= 2:
+                        r = - v ** 3 + 6 * t ** 2 - 12 * v + 8
+                    psi4.append(r / 6)
+                return psi4
+            case other:
+                raise ValueError('Некорректный коэффицент сглаживания')
+
+    def get_precomputation(self) -> list:
+        self.P2 = []
+        match self.r:
+            case 0:
+                for k in range(self.K):
+                    Ps = []
+                    for n in range(self.N_):
+                        P = self.phi[k] * self.psi[n]
+                        Ps.append(P)
+                    self.P2.append(Ps)
+            case 2:
+                for k in range(self.K):
+                    Ps = []
+                    for n in range(2 * self.N_):
+                        P = self.phi[k] * self.psi[n]
+                        Ps.append(P)
+                    self.P2.append(Ps)
+        return self.P2
+
     def fit(self):
         eps = np.finfo(float).eps
         # инициализация узлов u(i) крупной сетки на отрезке [0, K-1]
@@ -44,29 +85,56 @@ class BSP:
         self.F = self.phi.copy()
 
         # инициализация массива ядер В.А. Стеклова
-        self.psi = []
-        if self.r == 0:
-            # массив размера N_ значений ядра В.А. Стеклова без сглаживания
-            x = np.linspace(0, self.N / self.N_, self.N_)
-            self.psi = [1 - abs(t) if abs(t) <= 1 else 0 for t in x]
-        elif self.r == 2:
-            # массив размера 2N_ значений ядра В.А. Стеклова без сглаживания
-            x = np.linspace(0, (self.N + self.N_) / self.N_, 2 * self.N_)
-            psi4 = []
-            for t in x:
-                v = abs(t)
-                if v <= 1:
-                    r = 3 * v ** 3 - 6 * v ** 2 + 4
-                elif 1 < v <= 2:
-                    r = - v ** 3 + 6 * t ** 2 - 12 * v + 8
-                else:
-                    r = 0
-                psi4.append(r / 6)
-            self.psi = psi4.copy()
-        else:
-            raise ValueError('Некорректный коэффицент сглаживания')
+        self.psi = self.get_psi()
 
-    def compute_by_ppe(self):
+    def improved_compute_by_map(self):
+        self.x = np.linspace(0, (self.K - 1) * self.h, self.M)
+        ms = list(np.array_split(range(0, self.M), self.p))
+
+        pool = mp.Pool(self.p)
+
+        self.P2 = self.get_precomputation()
+
+        self.time_start = time.perf_counter()
+        self.G = []
+
+        match self.r:
+            case 0:
+                results = pool.map(self.improved_compute_G0, ms)
+            case 2:
+                results = pool.map(self.improved_compute_G2, ms)
+        self.time_end = time.perf_counter()
+        for i in results:
+            self.G.extend(i)
+
+    def improved_compute_G0(self, ms):
+        vs = []
+        for m in ms:
+            k = int(m / self.N_)
+            n = m % self.N_
+            v = self.P2[k][n]
+            if self.M - m > self.N_:
+                v += self.P2[k + 1][self.N_ - n - 1]
+            vs.append(v)
+        return vs
+
+    def improved_compute_G2(self, ms):
+        vs = []
+        for m in ms:
+            k = int(m / self.N_)
+            n = m % self.N_
+            v = 0
+            if m > self.N_:
+                v += self.P2[k-1][self.N_ + n]
+            v += self.P2[k][n]
+            if self.M - m > self.N_:
+                v += self.P2[k + 1][self.N_ - n - 1]
+            if self.M - m > 2*self.N_:
+                v += self.P2[k+2][2*self.N_ - n - 1]
+            vs.append(v)
+        return vs
+
+    def naive_compute_by_ppe(self):
         # массив размером M значение аппроксимирующей функции в узлах мелкой сетки
         self.x = np.linspace(0, (self.K - 1) * self.h, self.M)
         ms = list(np.array_split(range(0, self.M), self.p))
@@ -86,7 +154,7 @@ class BSP:
         for i in results:
             self.G.extend(i)
 
-    def compute_by_map(self):
+    def naive_compute_by_map(self):
         # массив размером M значение аппроксимирующей функции в узлах мелкой сетки
         self.x = np.linspace(0, (self.K - 1) * self.h, self.M)
         ms = list(np.array_split(range(0, self.M), self.p))
@@ -111,7 +179,7 @@ class BSP:
         for i in results:
             self.G.extend(i)
 
-    def compute_by_apply(self):
+    def naive_compute_by_apply(self):
         # массив размером M значение аппроксимирующей функции в узлах мелкой сетки
         self.x = np.linspace(0, (self.K - 1) * self.h, self.M)
         ms = list(np.array_split(range(0, self.M), self.p))
@@ -123,12 +191,13 @@ class BSP:
         self.time_start = time.perf_counter()
         results = []
         self.G = []
-        if self.r == 0:
-            for i in ms:
-                results.append(pool.apply(self.compute_G0, args=(i,)))
-        elif self.r == 2:
-            for i in ms:
-                results.append(pool.apply(self.compute_G2, args=(i,)))
+        match r:
+            case 0:
+                for i in ms:
+                    results.append(pool.apply(self.compute_G0, args=(i,)))
+            case 2:
+                for i in ms:
+                    results.append(pool.apply(self.compute_G2, args=(i,)))
         pool.close()
         pool.join()
         self.time_end = time.perf_counter()
@@ -174,7 +243,7 @@ class BSP:
     def display_results_2D(self):
         # вывод исходных и восстановленных данных
         plt.scatter(self.u, self.phi, label='Исходные данные')
-        plt.plot(self.x, self.G, alpha=0.5, label='Восстановленные данные')
+        plt.plot(self.x, self.G, label='Восстановленные данные')
         plt.title('G0 - без сглаживания' if self.r == 0 else 'G2 - со сглаживанием')
         plt.xlabel('x')
         plt.ylabel('y')
@@ -195,16 +264,19 @@ class BSP:
         plt.show()
 
     def display_psi(self):
-        if self.r == 0:
-            x = np.linspace(0, self.N / self.N_, self.N_)
-            plt.plot(x, self.psi)
-            plt.show()
-        elif self.r == 2:
-            x = np.linspace(0, (self.N + self.N_) / self.N_, 2 * self.N_)
-            plt.plot(x, self.psi)
-            plt.show()
-        else:
-            raise ValueError('Некорректный коэффицент сглаживания')
+        match self.r:
+            case 0:
+                x = np.linspace(0, self.N / self.N_, self.N_)
+                plt.plot(-x[::-1], self.psi[::-1], 'b--')
+                plt.plot(x, self.psi, 'b')
+            case 2:
+                x = np.linspace(0, (self.N + self.N_) / self.N_, 2 * self.N_)
+                plt.plot(-x[::-1], self.psi[::-1], 'b--')
+                plt.plot(x, self.psi, 'b')
+            case other:
+                raise ValueError('Некорректный коэффицент сглаживания')
+        plt.title('psi2' if self.r == 0 else 'psi4')
+        plt.show()
 
     def computation_time(self):
-        print(f'Время работы составило {self.time_end - self.time_start} секунд')
+        print(f'Время работы составило {self.time_end - self.time_start:.5f} секунд')
