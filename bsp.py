@@ -1,4 +1,3 @@
-import concurrent.futures
 from concurrent.futures import ProcessPoolExecutor
 import multiprocessing as mp
 import numpy as np
@@ -51,9 +50,8 @@ class BSP:
                 return psi4
             case other:
                 raise ValueError('Некорректный коэффицент сглаживания')
-
     def get_precomputation(self) -> list:
-        self.P2 = []
+        P2 = []
         match self.r:
             case 0:
                 for k in range(self.K):
@@ -61,16 +59,15 @@ class BSP:
                     for n in range(self.N_):
                         P = self.phi[k] * self.psi[n]
                         Ps.append(P)
-                    self.P2.append(Ps)
+                    P2.append(Ps)
             case 2:
                 for k in range(self.K):
                     Ps = []
                     for n in range(2 * self.N_):
                         P = self.phi[k] * self.psi[n]
                         Ps.append(P)
-                    self.P2.append(Ps)
-        return self.P2
-
+                    P2.append(Ps)
+        return P2
     def fit(self):
         eps = np.finfo(float).eps
         # инициализация узлов u(i) крупной сетки на отрезке [0, K-1]
@@ -86,7 +83,25 @@ class BSP:
 
         # инициализация массива ядер В.А. Стеклова
         self.psi = self.get_psi()
+    def improved_compute_by_ppe(self):
+        self.x = np.linspace(0, (self.K - 1) * self.h, self.M)
+        ms = list(np.array_split(range(0, self.M), self.p))
 
+        pool = mp.Pool(self.p)
+
+        self.P2 = self.get_precomputation()
+
+        self.time_start = time.perf_counter()
+        self.G = []
+
+        match self.r:
+            case 0:
+                results = pool.map(self.improved_compute_G0, ms)
+            case 2:
+                results = pool.map(self.improved_compute_G2, ms)
+        self.time_end = time.perf_counter()
+        for i in results:
+            self.G.extend(i)
     def improved_compute_by_map(self):
         self.x = np.linspace(0, (self.K - 1) * self.h, self.M)
         ms = list(np.array_split(range(0, self.M), self.p))
@@ -106,7 +121,25 @@ class BSP:
         self.time_end = time.perf_counter()
         for i in results:
             self.G.extend(i)
+    def improved_compute_by_apply(self):
+        self.x = np.linspace(0, (self.K - 1) * self.h, self.M)
+        ms = list(np.array_split(range(0, self.M), self.p))
 
+        pool = mp.Pool(self.p)
+
+        self.P2 = self.get_precomputation()
+
+        self.time_start = time.perf_counter()
+        self.G = []
+
+        match self.r:
+            case 0:
+                results = pool.map(self.improved_compute_G0, ms)
+            case 2:
+                results = pool.map(self.improved_compute_G2, ms)
+        self.time_end = time.perf_counter()
+        for i in results:
+            self.G.extend(i)
     def improved_compute_G0(self, ms):
         vs = []
         for m in ms:
@@ -117,7 +150,6 @@ class BSP:
                 v += self.P2[k + 1][self.N_ - n - 1]
             vs.append(v)
         return vs
-
     def improved_compute_G2(self, ms):
         vs = []
         for m in ms:
@@ -133,7 +165,6 @@ class BSP:
                 v += self.P2[k+2][2*self.N_ - n - 1]
             vs.append(v)
         return vs
-
     def naive_compute_by_ppe(self):
         # массив размером M значение аппроксимирующей функции в узлах мелкой сетки
         self.x = np.linspace(0, (self.K - 1) * self.h, self.M)
@@ -147,13 +178,12 @@ class BSP:
         with concurrent.futures.ProcessPoolExecutor(max_workers=self.p) as executor:
             match self.r:
                 case 0:
-                    results = executor.map(self.compute_G0, ms)
+                    results = executor.map(self.naive_compute_G0, ms)
                 case 2:
                     results = executor.map(self.compute_G2, ms)
         self.time_end = time.perf_counter()
         for i in results:
             self.G.extend(i)
-
     def naive_compute_by_map(self):
         # массив размером M значение аппроксимирующей функции в узлах мелкой сетки
         self.x = np.linspace(0, (self.K - 1) * self.h, self.M)
@@ -169,16 +199,16 @@ class BSP:
 
         match self.r:
             case 0:
-                results = pool.map(self.compute_G0, ms)
+                results = pool.map(self.naive_compute_G0, ms)
             case 2:
                 results = pool.map(self.compute_G2, ms)
         pool.close()
         pool.join()
 
         self.time_end = time.perf_counter()
+        self.time = self.time_end - self.time_start
         for i in results:
             self.G.extend(i)
-
     def naive_compute_by_apply(self):
         # массив размером M значение аппроксимирующей функции в узлах мелкой сетки
         self.x = np.linspace(0, (self.K - 1) * self.h, self.M)
@@ -194,7 +224,7 @@ class BSP:
         match r:
             case 0:
                 for i in ms:
-                    results.append(pool.apply(self.compute_G0, args=(i,)))
+                    results.append(pool.apply(self.naive_compute_G0, args=(i,)))
             case 2:
                 for i in ms:
                     results.append(pool.apply(self.compute_G2, args=(i,)))
@@ -203,8 +233,7 @@ class BSP:
         self.time_end = time.perf_counter()
         for i in results:
             self.G.extend(i)
-
-    def compute_G0(self, ms):
+    def naive_compute_G0(self, ms):
         vs = []
         for m in ms:
             phi_1 = self.F[int(m / self.N_)]
@@ -216,7 +245,6 @@ class BSP:
                 v += phi_2 * psi_2
             vs.append(v)
         return vs
-
     def compute_G2(self, ms):
         vs = []
         for m in ms:
@@ -239,7 +267,6 @@ class BSP:
                 v += phi_4 * psi_4
             vs.append(v)
         return vs
-
     def display_results_2D(self):
         # вывод исходных и восстановленных данных
         plt.scatter(self.u, self.phi, label='Исходные данные')
@@ -249,7 +276,6 @@ class BSP:
         plt.ylabel('y')
         plt.legend()
         plt.show()
-
     def display_results_3D(self):
         fig = plt.figure()
         ax = Axes3D(fig)
@@ -262,7 +288,6 @@ class BSP:
         ax.set_zlabel('z')
         plt.legend()
         plt.show()
-
     def display_psi(self):
         match self.r:
             case 0:
@@ -271,12 +296,13 @@ class BSP:
                 plt.plot(x, self.psi, 'b')
             case 2:
                 x = np.linspace(0, (self.N + self.N_) / self.N_, 2 * self.N_)
-                plt.plot(-x[::-1], self.psi[::-1], 'b--')
-                plt.plot(x, self.psi, 'b')
+                plt.plot(-x[::-1], self.psi[::-1], 'y--')
+                plt.plot(x, self.psi, 'y')
             case other:
                 raise ValueError('Некорректный коэффицент сглаживания')
-        plt.title('psi2' if self.r == 0 else 'psi4')
+        plt.title(r'$\psi_2$' if self.r == 0 else r'$\psi_4$')
         plt.show()
-
-    def computation_time(self):
-        print(f'Время работы составило {self.time_end - self.time_start:.5f} секунд')
+    def print_computation_time(self):
+        print(f'Время работы составило {self.time:.5f} секунд')
+    def get_time(self):
+        return self.time
